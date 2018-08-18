@@ -2,7 +2,7 @@
 *.jpg
 *.pth
 
-./flowers
-./assets
-./vscode
-./ipynb_checkpoints
+flowers
+assets
+vscode
+.ipynb_checkpoints
