@@ -59,7 +59,7 @@ def get_input_args():
     parser.add_argument('--k', type=int, default=1, 
     help='number of top predictions shown to the users')
 
-    parser.add_argument('--cuda', type=bool, default=True, 
+    parser.add_argument('--cuda', action='store_true' ,
     help='Execute code on GPU')
 
     parser.add_argument('--dict', type=str, default=None, 
@@ -102,15 +102,17 @@ if __name__ == "__main__":
 
     in_arg = get_input_args()
 
-    if(in_arg.cuda and torch.cuda.is_available()):
-        device = 'cuda'
-        print('Executing model in GPU')
-    elif (not torch.cuda.is_available):
-        device = 'cpu'
-        print('Your system is not compatible with CUDA')
+    if(in_arg.cuda == True): 
+        if torch.cuda.is_available():
+            device = 'cuda'
+            print('Using GPU for calculations')
+        else:
+            device = 'cpu'
+            print('Your system is not compatible with CUDA')
+            print('Using CPU for calculations')
     else:
         device = 'cpu'
-        print('Executing model in CPU')
+        print('Using CPU for calculations')
 
     main()
     

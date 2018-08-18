@@ -6,30 +6,36 @@ import numpy as np
 import torch
 from torch import nn
 from torch import optim
-import torch.nn.functional as False
+import torch.nn.functional as F
 
 import argparse
-
 
 from torchvision import transforms, models, datasets
 from PIL import Image
 
 
-class  NetworkNetwork(torch.nn.Module):
+class  Network(torch.nn.Module):
     def __init__(self, input_size, output_size, hidden_layers, drop_p=0.5):
-        ''' Builds a feedforward network with arbitrary hidden layers.
+        ''' Modified ECR: Builds a feedforward network with arbitrary hidden layers.
         
             Arguments
             ---------
             input_size: integer, size of the input
             output_size: integer, size of the output layer
-            hidden_layers: list of integers, the sizes of the hidden layers
+
+            MOD: hidden_layers: list of integers, the sizes of the hidden layers or int.
+                           if int the internal layers would be automatically
+                           calculated as a cuadratic number multiplied by the output
+                           size vector
+
             drop_p: float between 0 and 1, dropout probability
         '''
         super().__init__()
         # Add the first layer, input to a hidden layer
-        self.hidden_layers = nn.ModuleList([nn.Linear(input_size, hidden_layers[0])])
+        if isinstance(hidden_layers, int):
+            hidden_layers = [ output_size * 2**x for x in range(hidden_layers-1, 0, -1) ]
         
+        self.hidden_layers = nn.ModuleList([nn.Linear(input_size, hidden_layers[0])])
         # Add a variable number of more hidden layers
         layer_sizes = zip(hidden_layers[:-1], hidden_layers[1:])
         self.hidden_layers.extend([nn.Linear(h1, h2) for h1, h2 in layer_sizes])
@@ -39,29 +45,19 @@ class  NetworkNetwork(torch.nn.Module):
         self.dropout = nn.Dropout(p=drop_p)
         
     def forward(self, x):
-        ''' Forward pass through the network, returns the output logits '''
+
+        for linear in self.hidden_layers:
+            x = F.relu(linear(x))
+            x = self.dropout(x)
         
-        # Forward through each layer in `hidden_layers`, with ReLU activation and dropout
-        if isinstance((self.hidden_layers), list):
-
-            for linear in self.hidden_layers:
-                x = F.relu(linear(x))
-                x = self.dropout(x)
-            
-            x = self.output(x)
-
-        else:
-            layers = np.power(range(self.hidden_layers), -2)
-            for linear in layers: # hacer que se reduzcan en potencias de dos
-                x = F.relu(linear(x))
-                x = self.dropout(x)
-            
-            x = self.output(x)
+        x = self.output(x)
         
         return F.log_softmax(x, dim=1)
 
 
 def main():
+
+    print('Initializing training, validation, and test databases')
 
     data_dir = in_arg.database
     train_dir = data_dir + '/train'
@@ -88,38 +84,48 @@ def main():
     testloader = torch.utils.data.DataLoader(test_data, batch_size=32, shuffle=True)
     validationloader = torch.utils.data.DataLoader(validation_data, batch_size=32, shuffle=True)
 
-    print('Starting execution')
+    print('Completed')
+    print('Initializing model')
 
-    if in_arg.vgg != None:
+    if in_arg.vgg16 == True:
         model = models.vgg16(pretrained=True)
-    elif in_arg.resnet != None:
-        model = models.resnet(pretrained=True)
+        input_size = model.classifier[0].in_features
+        print('Using VGG16 as CNN base model')
+    elif in_arg.dnet == True:
+        print('Using DenseNet121 as CNN base model')
+        model = models.densenet121(pretrained=True)
+        input_size = model.classifier.in_features
     else:
-        print('Model not specified, using VGG16 by default')
+        print('Model not specified, using VGG16 as CNN base model by default')
         model = models.vgg16(pretrained=True)
+        input_size = model.classifier[0].in_features
 
     for param in model.parameters():
         param.requires_grad = False
 
-    # TODO: implementar la estructura del clasificador
-    classifier = Network(784, 100, 3, drop_p=0.5)
-
+    
+    output_size = len(train_data.class_to_idx)
+    classifier = Network(input_size, output_size, in_arg.nn_param, drop_p=0.5)
+    print(classifier)
     model.classifier = classifier
     model.to(device)
 
-    model = train(model, trainloader, testloader, validationloader)
+    print('Completed')
+    print('Starting training:')
+
+    criterion = torch.nn.NLLLoss()
+    optimizer = torch.optim.SGD(model.classifier.parameters(), lr = in_arg.lr) # 0.01 SGD
+
+    model = train(model, trainloader, testloader, validationloader, criterion, optimizer)
 
     print('Training completed')
 
 
-def train(model, trainloader, testloader, validationloader):
+def train(model, trainloader, testloader, validationloader, criterion, optimizer):
     epochs = in_arg.epochs
     running_loss = 0
     steps = 0
     print_every = 30
-
-    criterion = torch.nn.NLLLoss()
-    optimizer = torch.optim.SGD(model.classifier.parameters(), lr = in_arg.lr) # 0.01 SGD
 
     for e in range(epochs):
         running_loss = 0
@@ -178,14 +184,14 @@ def get_input_args():
     parser.add_argument('--database', type=str, default='./flowers', 
     help='path to root database images')
 
-    parser.add_argument('--nn_param', type=np.array, default=None, 
-    help='path to root database images')
+    parser.add_argument('--nn_param', nargs='+', type=int, default= [3], 
+    help='number of hidden units, integer or list')
 
-    parser.add_argument('--vgg', type=str, 
-    help='Starting model is VGG16')
+    parser.add_argument('--vgg16', action='store_true',
+    help='Base CNN is VGG16')
 
-    parser.add_argument('--resnet', type=str, 
-    help='Starting model is VGG16')
+    parser.add_argument('--dnet', action='store_true',
+    help='Base CNN is DenseNet121')
 
     parser.add_argument('--lr', type=float, default=0.01, 
     help='Sets the learning rate for training')
@@ -193,8 +199,9 @@ def get_input_args():
     parser.add_argument('--epochs', type=int, default=2, 
     help='Number of epochs')
 
-    parser.add_argument('--cuda', type=bool, default=True, 
+    parser.add_argument('--cuda', action='store_true', 
     help='Execute code on GPU')
+
 
     return parser.parse_args()
 
@@ -202,14 +209,20 @@ if __name__ == "__main__":
 
     in_arg = get_input_args()
 
-    if(in_arg.cuda and bool(torch.cuda.is_available())):
-        device = 'cuda'
-        print('Executing model in GPU')
-    elif (not torch.cuda.is_available):
-        device = 'cpu'
-        print('Your system is not compatible with CUDA')
+    if(in_arg.cuda): 
+        if torch.cuda.is_available():
+            device = 'cuda'
+            print('Using GPU for calculations')
+        else:
+            device = 'cpu'
+            print('Your system is not compatible with CUDA')
+            print('Using CPU for calculations')
     else:
         device = 'cpu'
-        print('Executing model in CPU')
+        print('Using CPU for calculations')
+
+    if(len(in_arg.nn_param) == 1):
+        print('Interpreting nn_param as the number of hidden layers')
+        in_arg.nn_param = int(in_arg.nn_param[0])
 
     main()
