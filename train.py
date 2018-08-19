@@ -119,7 +119,13 @@ def main():
     model = train(model, trainloader, testloader, validationloader, criterion, optimizer)
 
     print('Training completed')
+    print('Saving model .pth file')
 
+    torch.save(model.classifier.state_dict(), 'checkpoint.pth')
+    
+    print(model)
+    print('Completed')
+    print('End of program')
 
 def train(model, trainloader, testloader, validationloader, criterion, optimizer):
     epochs = in_arg.epochs
